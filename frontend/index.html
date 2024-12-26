@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Basic Auction House dApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .auction-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .auction-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+        }
+        input, button {
+            margin: 10px 0;
+            padding: 10px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .auction-details {
+            margin-top: 15px;
+        }
+        #walletAddress {
+            word-break: break-all;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Basic Auction House</h1>
+        
+        <div id="connectWallet">
+            <button onclick="connectWallet()">Connect Wallet</button>
+        </div>
+
+        <div id="auctionApp" style="display:none;">
+            <h2>Your Wallet</h2>
+            <p id="walletAddress"></p>
+
+            <div class="container">
+                <h2>Create New Auction</h2>
+                <input type="number" id="startPrice" placeholder="Starting Price (wei)">
+                <button onclick="createAuction()">Create Auction</button>
+            </div>
+
+            <div class="container">
+                <h2>Active Auctions</h2>
+                <button onclick="fetchActiveAuctions()">Refresh Auctions</button>
+                <div id="activeAuctions" class="auction-list">
+                    <!-- Auctions will be dynamically populated here -->
+                </div>
+            </div>
+
+            <div class="container">
+                <h2>Withdraw Funds</h2>
+                <button onclick="withdrawFunds()">Withdraw Pending Returns</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Contract ABI and Address (REPLACE WITH YOUR DEPLOYED CONTRACT DETAILS)
+        const contractAddress = '0x3a7800E9DE7Fc005C04894a0898182f53b305e61';
+        const contractABI = [
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "auctionId",
+				"type": "uint256"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "seller",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "startPrice",
+				"type": "uint256"
+			}
+		],
+		"name": "AuctionCreated",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "auctionId",
+				"type": "uint256"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "winner",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "finalPrice",
+				"type": "uint256"
+			}
+		],
+		"name": "AuctionEnded",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "auctionId",
+				"type": "uint256"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "bidder",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "bidAmount",
+				"type": "uint256"
+			}
+		],
+		"name": "BidPlaced",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_startPrice",
+				"type": "uint256"
+			}
+		],
+		"name": "createAuction",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_auctionId",
+				"type": "uint256"
+			}
+		],
+		"name": "endAuction",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_auctionId",
+				"type": "uint256"
+			}
+		],
+		"name": "placeBid",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "withdraw",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "AUCTION_DURATION",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "auctionCounter",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "auctions",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "seller",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "highestBidder",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "startPrice",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "highestBid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "auctionEndTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "isActive",
+				"type": "bool"
+			},
+			{
+				"internalType": "bool",
+				"name": "isClaimed",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_auctionId",
+				"type": "uint256"
+			}
+		],
+		"name": "getAuctionDetails",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "seller",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "highestBidder",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "startPrice",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "highestBid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "auctionEndTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "isActive",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_auctionId",
+				"type": "uint256"
+			}
+		],
+		"name": "isAuctionActive",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "MIN_BID_INCREMENT",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "pendingReturns",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+];
+
+        let web3;
+        let contract;
+        let userAccount;
+
+        async function connectWallet() {
+            if (window.ethereum) {
+                web3 = new Web3(window.ethereum);
+                try {
+                    // Request account access
+                    await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    
+                    // Get the user's accounts
+                    const accounts = await web3.eth.getAccounts();
+                    userAccount = accounts[0];
+
+                    // Initialize contract
+                    contract = new web3.eth.Contract(contractABI, contractAddress);
+
+                    // Update UI
+                    document.getElementById('connectWallet').style.display = 'none';
+                    document.getElementById('auctionApp').style.display = 'block';
+                    document.getElementById('walletAddress').textContent = `Connected: ${userAccount}`;
+
+                    // Fetch initial auctions
+                    await fetchActiveAuctions();
+                } catch (error) {
+                    console.error("User denied account access");
+                }
+            } else {
+                alert('Please install MetaMask!');
+            }
+        }
+
+        async function createAuction() {
+            const startPrice = document.getElementById('startPrice').value;
+
+            try {
+                await contract.methods.createAuction(startPrice)
+                    .send({ from: userAccount });
+
+                alert('Auction created successfully!');
+                document.getElementById('startPrice').value = '';
+                
+                // Refresh auctions
+                await fetchActiveAuctions();
+            } catch (error) {
+                console.error('Error creating auction:', error);
+                alert('Failed to create auction');
+            }
+        }
+
+        async function fetchActiveAuctions() {
+            const activeAuctionsDiv = document.getElementById('activeAuctions');
+            activeAuctionsDiv.innerHTML = ''; // Clear previous auctions
+
+            try {
+                // Get total number of auctions
+                const totalAuctions = await contract.methods.auctionCounter().call();
+
+                // Fetch details for each auction
+                for (let i = 1; i <= totalAuctions; i++) {
+                    const auction = await contract.methods.getAuctionDetails(i).call();
+
+                    // Only show active auctions
+                    if (auction.isActive) {
+                        const auctionCard = document.createElement('div');
+                        auctionCard.className = 'auction-card';
+                        
+                        // Convert timestamps and format prices
+                        const endTime = new Date(auction.auctionEndTime * 1000).toLocaleString();
+                        const startPrice = web3.utils.fromWei(auction.startPrice, 'ether');
+                        const highestBid = web3.utils.fromWei(auction.highestBid, 'ether');
+
+                        auctionCard.innerHTML = `
+                            <h3>Auction #${i}</h3>
+                            <div class="auction-details">
+                                <p><strong>Seller:</strong> ${auction.seller}</p>
+                                <p><strong>Start Price:</strong> ${startPrice} ETH</p>
+                                <p><strong>Highest Bid:</strong> ${highestBid} ETH</p>
+                                <p><strong>Highest Bidder:</strong> ${auction.highestBidder || 'No bids yet'}</p>
+                                <p><strong>Ends:</strong> ${endTime}</p>
+                                <input type="number" id="bidAmount${i}" placeholder="Bid Amount (wei)">
+                                <button onclick="placeBid(${i})">Place Bid</button>
+                            </div>
+                        `;
+
+                        activeAuctionsDiv.appendChild(auctionCard);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching auctions:', error);
+                alert('Failed to fetch auctions');
+            }
+        }
+
+        async function placeBid(auctionId) {
+            const bidInput = document.getElementById(`bidAmount${auctionId}`);
+            const bidAmount = bidInput.value;
+
+            try {
+                await contract.methods.placeBid(auctionId)
+                    .send({ 
+                        from: userAccount, 
+                        value: bidAmount 
+                    });
+
+                alert('Bid placed successfully!');
+                bidInput.value = '';
+                
+                // Refresh auctions
+                await fetchActiveAuctions();
+            } catch (error) {
+                console.error('Error placing bid:', error);
+                alert('Failed to place bid');
+            }
+        }
+
+        async function withdrawFunds() {
+            try {
+                await contract.methods.withdraw().send({ from: userAccount });
+                alert('Funds withdrawn successfully!');
+            } catch (error) {
+                console.error('Error withdrawing funds:', error);
+                alert('Failed to withdraw funds');
+            }
+        }
+    </script>
+</body>
+</html>
